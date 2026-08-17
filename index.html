@@ -903,7 +903,7 @@
       </div>
 
       <div class="result-actions">
-        <button class="ghost" id="downloadBtn">下載結果圖片</button>
+        <button class="ghost" id="downloadMobileBtn">下載圖片</button>
         <button class="ghost" id="retakeBtn">重新測驗</button>
       </div>
     </section>
@@ -978,7 +978,7 @@ const TRANSLATIONS = {
     startBtn: "開始測驗",
     backBtn: "← 回上一題",
     retakeBtn: "重新測驗",
-    downloadBtn: "下載結果圖片",
+    downloadMobileBtn: "下載圖片",
     downloadPreparing: "圖片產生中…",
     downloadFailed: "下載失敗，請截圖保存",
     resultEyebrow: "測驗結果",
@@ -1023,7 +1023,7 @@ const TRANSLATIONS = {
     startBtn: "开始测验",
     backBtn: "← 返回上一题",
     retakeBtn: "重新测验",
-    downloadBtn: "下载结果图片",
+    downloadMobileBtn: "下载图片",
     downloadPreparing: "图片生成中…",
     downloadFailed: "下载失败，请截图保存",
     resultEyebrow: "测验结果",
@@ -1068,7 +1068,7 @@ const TRANSLATIONS = {
     startBtn: "Bắt đầu",
     backBtn: "← Câu trước",
     retakeBtn: "Làm lại",
-    downloadBtn: "Tải ảnh kết quả",
+    downloadMobileBtn: "Tải ảnh",
     downloadPreparing: "Đang tạo ảnh…",
     downloadFailed: "Tải xuống thất bại, vui lòng chụp màn hình",
     resultEyebrow: "Kết quả",
@@ -1144,7 +1144,7 @@ function applyStaticText(){
   document.getElementById("startBtn").textContent = t.startBtn;
   document.getElementById("backBtn").textContent = t.backBtn;
   document.getElementById("retakeBtn").textContent = t.retakeBtn;
-  document.getElementById("downloadBtn").textContent = t.downloadBtn;
+  document.getElementById("downloadMobileBtn").textContent = t.downloadMobileBtn;
   document.getElementById("resultEyebrowText").textContent = t.resultEyebrow;
   document.getElementById("behaviorLabelText").textContent = t.behaviorLabel;
   document.getElementById("footerText").textContent = t.footer;
@@ -1753,8 +1753,7 @@ function buildMobileExportCard(){
   return outer;
 }
 
-document.getElementById("downloadBtn").addEventListener("click", async () => {
-  const btn = document.getElementById("downloadBtn");
+async function downloadResultImage(btn, isMobile){
   const originalLabel = btn.textContent;
 
   if(typeof html2canvas === "undefined"){
@@ -1766,8 +1765,7 @@ document.getElementById("downloadBtn").addEventListener("click", async () => {
   btn.disabled = true;
   btn.textContent = T().downloadPreparing;
 
-  const mobile = isMobileViewport();
-  const exportEl = mobile ? buildMobileExportCard() : buildDesktopExportCard();
+  const exportEl = isMobile ? buildMobileExportCard() : buildDesktopExportCard();
 
   try {
     // 等一個 frame，確保剛插入 DOM 的內容已經完成排版
@@ -1782,7 +1780,8 @@ document.getElementById("downloadBtn").addEventListener("click", async () => {
 
     const result = lastResultKey ? RESULT_TYPE(lastResultKey) : null;
     const safeName = (result ? result.name : "duobao-result").replace(/[\\/:*?"<>|]/g, "");
-    const fileName = safeName + ".jpg";
+    const suffix = isMobile ? "" : "-desktop";
+    const fileName = safeName + suffix + ".jpg";
 
     const link = document.createElement("a");
     link.href = dataUrl;
@@ -1799,6 +1798,10 @@ document.getElementById("downloadBtn").addEventListener("click", async () => {
     document.body.removeChild(exportEl);
     btn.disabled = false;
   }
+}
+
+document.getElementById("downloadMobileBtn").addEventListener("click", () => {
+  downloadResultImage(document.getElementById("downloadMobileBtn"), true);
 });
 
 /* =========================================================
