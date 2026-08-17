@@ -1554,18 +1554,24 @@ function submitViaGoogleForm_(data, statusEl){
    11. 下載結果圖片
    採用「另外組一張獨立、寫死尺寸與顏色的匯出卡片」的做法，
    不去依賴 html2canvas 對響應式版面／CSS變數的還原（不穩定，會跑版、顏色跑掉）
+
+   桌面：內容多高就多高的卡片（640 CSS px 寬）
+   手機：業界慣用的直式分享圖比例 9:16（參考 IG / FB Stories 全螢幕分享圖規格），
+        內容置中撐開、字級明顯放大，不是把桌面版縮小
    ========================================================= */
 
-const DOWNLOAD_WIDTH_MOBILE = 375;
-const DOWNLOAD_WIDTH_DESKTOP = 640;
 const DOWNLOAD_SCALE = 2; // 固定輸出解析度倍率，不受裝置像素密度影響
+
+// 手機版固定輸出 1080×1920（9:16），這裡先用 CSS px 建構，html2canvas 再乘上 DOWNLOAD_SCALE
+const MOBILE_CANVAS_W = 540;
+const DESKTOP_CARD_W = 640;
 
 function isMobileViewport(){
   return window.innerWidth <= 520;
 }
 
-function buildLanternSVG(gold, red){
-  return `<svg viewBox="0 0 44 78" width="34" height="60" xmlns="http://www.w3.org/2000/svg">
+function buildLanternSVG(gold, red, w, h){
+  return `<svg viewBox="0 0 44 78" width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
     <line x1="22" y1="0" x2="22" y2="8" stroke="${gold}" stroke-width="2"/>
     <rect x="15" y="6" width="14" height="5" rx="1.5" fill="${gold}"/>
     <ellipse cx="22" cy="34" rx="17" ry="24" fill="${red}"/>
@@ -1579,8 +1585,8 @@ function buildLanternSVG(gold, red){
   </svg>`;
 }
 
-function buildIngotSVG(gold){
-  return `<svg viewBox="0 0 60 60" width="40" height="40" xmlns="http://www.w3.org/2000/svg">
+function buildIngotSVG(gold, size){
+  return `<svg viewBox="0 0 60 60" width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
     <ellipse cx="30" cy="46" rx="17" ry="9" fill="${gold}"/>
     <ellipse cx="21" cy="34" rx="7.5" ry="7.5" fill="${gold}"/>
     <ellipse cx="39" cy="34" rx="7.5" ry="7.5" fill="${gold}"/>
@@ -1588,72 +1594,163 @@ function buildIngotSVG(gold){
   </svg>`;
 }
 
-// 組出一張完全獨立、寫死內嵌樣式的匯出卡片（不吃頁面上的響應式CSS／CSS變數）
-function buildExportCard(width){
+function getExportColors(result){
+  const cs = getComputedStyle(document.documentElement);
+  return {
+    typeColor: cs.getPropertyValue(result.varName).trim(),
+    paleColor: cs.getPropertyValue(result.pale).trim(),
+    gold: cs.getPropertyValue("--gold").trim(),
+    red: cs.getPropertyValue("--festive-red").trim(),
+    ink: cs.getPropertyValue("--ink").trim(),
+    inkSoft: cs.getPropertyValue("--ink-soft").trim(),
+    line: cs.getPropertyValue("--line").trim()
+  };
+}
+
+function buildResultInnerHTML(result, t, c, fz){
+  return `
+    <div style="text-align:center;">
+      <div style="font-family:'IBM Plex Mono','Noto Sans',sans-serif; font-size:${fz.eyebrow}px; letter-spacing:0.1em; color:${c.inkSoft}; margin-bottom:${fz.eyebrowGap}px;">${t.resultEyebrow}</div>
+
+      <div style="width:${fz.avatar}px; height:${fz.avatar}px; border-radius:50%; margin:0 auto ${fz.avatarGap}px; background:${c.typeColor}; display:flex; align-items:center; justify-content:center; font-family:'Noto Serif TC',serif; font-weight:900; font-size:${fz.avatarChar}px; color:#ffffff;">${result.char}</div>
+
+      <div style="font-family:'Noto Serif TC',serif; font-weight:900; font-size:${fz.name}px; color:${c.typeColor}; margin-bottom:${fz.nameGap}px; line-height:1.25;">${result.name}</div>
+
+      <div style="display:inline-block; font-size:${fz.tagline}px; font-weight:700; padding:${fz.taglinePadV}px ${fz.taglinePadH}px; border-radius:999px; color:${c.typeColor}; background:${c.paleColor};">${result.tagline}</div>
+    </div>
+
+    <div style="border-top:1px dashed ${c.line}; margin:${fz.dividerMargin}px 0;"></div>
+
+    <div style="font-size:${fz.label}px; font-weight:700; letter-spacing:0.08em; color:${c.inkSoft}; margin-bottom:${fz.labelGap}px;">${t.behaviorLabel}</div>
+    <p style="font-size:${fz.desc}px; line-height:1.9; color:${c.ink}; margin:0 0 ${fz.descGap}px;">${result.desc}</p>
+
+    <div style="display:flex; flex-direction:column; gap:${fz.tagGap}px;">
+      ${result.tags.map(tag => `<div style="padding:${fz.tagPadV}px ${fz.tagPadH}px; border-radius:${fz.tagRadius}px; border:1.5px solid ${c.typeColor}; font-size:${fz.tag}px; font-weight:600; text-align:center; color:${c.typeColor}; background:${c.paleColor};">${tag}</div>`).join("")}
+    </div>
+  `;
+}
+
+// 桌面版：內容多高卡片就多高，寬度固定 640 CSS px
+function buildDesktopExportCard(){
   const resultKey = lastResultKey || "A";
   const result = RESULT_TYPE(resultKey);
   const t = T();
-  const scaleFactor = width / DOWNLOAD_WIDTH_DESKTOP; // 手機版縮小字級比例
+  const c = getExportColors(result);
 
-  const cs = getComputedStyle(document.documentElement);
-  const typeColor = cs.getPropertyValue(result.varName).trim();
-  const paleColor = cs.getPropertyValue(result.pale).trim();
-  const gold = cs.getPropertyValue("--gold").trim();
-  const red = cs.getPropertyValue("--festive-red").trim();
-  const ink = cs.getPropertyValue("--ink").trim();
-  const inkSoft = cs.getPropertyValue("--ink-soft").trim();
-  const line = cs.getPropertyValue("--line").trim();
-
-  const fz = px => Math.round(px * scaleFactor);
-  const pad = fz(40);
+  const fz = {
+    eyebrow: 12, eyebrowGap: 14,
+    avatar: 86, avatarChar: 34, avatarGap: 16,
+    name: 40, nameGap: 12,
+    tagline: 16, taglinePadV: 7, taglinePadH: 16,
+    dividerMargin: 26,
+    label: 14, labelGap: 8,
+    desc: 18, descGap: 18,
+    tagGap: 10, tagPadV: 11, tagPadH: 16, tagRadius: 12, tag: 16
+  };
 
   const el = document.createElement("div");
   el.style.cssText = `
     position: fixed; left: -9999px; top: 0;
-    width: ${width}px;
+    width: ${DESKTOP_CARD_W}px;
     background: #ffffff;
-    border: ${fz(3)}px solid ${red};
-    border-radius: ${fz(20)}px;
-    box-shadow: 0 0 0 ${fz(6)}px ${gold};
-    padding: ${pad}px ${Math.round(pad*0.9)}px;
+    border: 3px solid ${c.red};
+    border-radius: 20px;
+    box-shadow: 0 0 0 6px ${c.gold};
+    padding: 40px 36px;
     box-sizing: border-box;
     font-family: "Noto Sans TC", "Noto Sans", "PingFang TC", sans-serif;
-    position: fixed;
   `;
 
   el.innerHTML = `
     <div style="position:relative;">
-      <div style="position:absolute; top:0; left:0;">${buildLanternSVG(gold, red)}</div>
-      <div style="position:absolute; top:0; right:0;">${buildLanternSVG(gold, red)}</div>
-
-      <div style="text-align:center; padding-top:${fz(10)}px;">
-        <div style="font-family:'IBM Plex Mono','Noto Sans',sans-serif; font-size:${fz(12)}px; letter-spacing:0.1em; color:${inkSoft}; margin-bottom:${fz(14)}px;">${t.resultEyebrow}</div>
-
-        <div style="width:${fz(86)}px; height:${fz(86)}px; border-radius:50%; margin:0 auto ${fz(16)}px; background:${typeColor}; display:flex; align-items:center; justify-content:center; font-family:'Noto Serif TC',serif; font-weight:900; font-size:${fz(34)}px; color:#ffffff;">${result.char}</div>
-
-        <div style="font-family:'Noto Serif TC',serif; font-weight:900; font-size:${fz(40)}px; color:${typeColor}; margin-bottom:${fz(12)}px;">${result.name}</div>
-
-        <div style="display:inline-block; font-size:${fz(16)}px; font-weight:700; padding:${fz(7)}px ${fz(16)}px; border-radius:999px; color:${typeColor}; background:${paleColor};">${result.tagline}</div>
-      </div>
-
-      <div style="border-top:1px dashed ${line}; margin:${fz(26)}px 0;"></div>
-
-      <div style="font-size:${fz(14)}px; font-weight:700; letter-spacing:0.08em; color:${inkSoft}; margin-bottom:${fz(8)}px; text-transform:uppercase;">${t.behaviorLabel}</div>
-      <p style="font-size:${fz(18)}px; line-height:1.95; color:${ink}; margin:0 0 ${fz(18)}px;">${result.desc}</p>
-
-      <div style="display:flex; flex-direction:column; gap:${fz(10)}px;">
-        ${result.tags.map(tag => `<div style="padding:${fz(11)}px ${fz(16)}px; border-radius:${fz(12)}px; border:1.5px solid ${typeColor}; font-size:${fz(16)}px; font-weight:600; text-align:center; color:${typeColor}; background:${paleColor};">${tag}</div>`).join("")}
-      </div>
-
-      <div style="display:flex; justify-content:space-between; margin-top:${fz(20)}px;">
-        <div>${buildIngotSVG(gold)}</div>
-        <div>${buildIngotSVG(gold)}</div>
+      <div style="position:absolute; top:0; left:0;">${buildLanternSVG(c.gold, c.red, 34, 60)}</div>
+      <div style="position:absolute; top:0; right:0;">${buildLanternSVG(c.gold, c.red, 34, 60)}</div>
+      <div style="padding-top:10px;">
+        ${buildResultInnerHTML(result, t, c, fz)}
+        <div style="display:flex; justify-content:space-between; margin-top:20px;">
+          <div>${buildIngotSVG(c.gold, 40)}</div>
+          <div>${buildIngotSVG(c.gold, 40)}</div>
+        </div>
       </div>
     </div>
   `;
 
   document.body.appendChild(el);
   return el;
+}
+
+// 手機版：固定 540×960 CSS px（輸出 1080×1920，9:16，比照 IG / FB Stories 全螢幕分享圖規格），
+// 內容整體置中撐開版面，字級比桌面版更大，不是桌面版的縮小版
+function buildMobileExportCard(){
+  const resultKey = lastResultKey || "A";
+  const result = RESULT_TYPE(resultKey);
+  const t = T();
+  const c = getExportColors(result);
+
+  const fz = {
+    eyebrow: 20, eyebrowGap: 22,
+    avatar: 132, avatarChar: 52, avatarGap: 26,
+    name: 58, nameGap: 18,
+    tagline: 25, taglinePadV: 12, taglinePadH: 26,
+    dividerMargin: 40,
+    label: 21, labelGap: 14,
+    desc: 28, descGap: 26,
+    tagGap: 16, tagPadV: 17, tagPadH: 22, tagRadius: 16, tag: 25
+  };
+
+  const innerHTML = `
+    ${buildResultInnerHTML(result, t, c, fz)}
+    <div style="display:flex; justify-content:space-between; margin-top:32px;">
+      <div>${buildIngotSVG(c.gold, 56)}</div>
+      <div>${buildIngotSVG(c.gold, 56)}</div>
+    </div>
+  `;
+
+  // 第一步：先用「高度自由伸展」的方式量出這則語言／結果的實際內容高度
+  // （不同語言的文字長度差很多，越南文常常比中文長很多，寫死同一個高度會裁到內容）
+  const probe = document.createElement("div");
+  probe.style.cssText = `position:fixed; left:-9999px; top:0; width:${MOBILE_CANVAS_W}px; padding:0 44px; box-sizing:border-box; font-family:"Noto Sans TC","Noto Sans","PingFang TC",sans-serif;`;
+  probe.innerHTML = innerHTML;
+  document.body.appendChild(probe);
+  const contentHeight = probe.getBoundingClientRect().height;
+  document.body.removeChild(probe);
+
+  const VERTICAL_PADDING = 130; // 上下各約65px的留白
+  const PHONE_RATIO_MIN_HEIGHT = Math.round(MOBILE_CANVAS_W * 16 / 9); // 手機常見比例的最小高度下限
+  const canvasHeight = Math.max(contentHeight + VERTICAL_PADDING, PHONE_RATIO_MIN_HEIGHT);
+
+  // 第二步：用量出來的高度組出正式畫布，內容置中撐開
+  const outer = document.createElement("div");
+  outer.style.cssText = `
+    position: fixed; left: -9999px; top: 0;
+    width: ${MOBILE_CANVAS_W}px;
+    height: ${canvasHeight}px;
+    background: #ffffff;
+    border: 5px solid ${c.red};
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: "Noto Sans TC", "Noto Sans", "PingFang TC", sans-serif;
+  `;
+
+  // 燈籠固定貼在整張畫布的頂端兩角，不隨內容區塊的高度變動而跑位
+  const lanternLeft = document.createElement("div");
+  lanternLeft.style.cssText = `position:absolute; top:26px; left:22px;`;
+  lanternLeft.innerHTML = buildLanternSVG(c.gold, c.red, 52, 92);
+  const lanternRight = document.createElement("div");
+  lanternRight.style.cssText = `position:absolute; top:26px; right:22px;`;
+  lanternRight.innerHTML = buildLanternSVG(c.gold, c.red, 52, 92);
+
+  const inner = document.createElement("div");
+  inner.style.cssText = `width: 100%; padding: 0 44px; box-sizing: border-box;`;
+  inner.innerHTML = innerHTML;
+
+  outer.appendChild(lanternLeft);
+  outer.appendChild(lanternRight);
+  outer.appendChild(inner);
+  document.body.appendChild(outer);
+  return outer;
 }
 
 document.getElementById("downloadBtn").addEventListener("click", async () => {
@@ -1669,8 +1766,8 @@ document.getElementById("downloadBtn").addEventListener("click", async () => {
   btn.disabled = true;
   btn.textContent = T().downloadPreparing;
 
-  const targetWidth = isMobileViewport() ? DOWNLOAD_WIDTH_MOBILE : DOWNLOAD_WIDTH_DESKTOP;
-  const exportEl = buildExportCard(targetWidth);
+  const mobile = isMobileViewport();
+  const exportEl = mobile ? buildMobileExportCard() : buildDesktopExportCard();
 
   try {
     // 等一個 frame，確保剛插入 DOM 的內容已經完成排版
